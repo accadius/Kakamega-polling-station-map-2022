@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Kakamega County Polling Stations Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet core CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <!-- Leaflet Control.Geocoder -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+
+  <!-- Leaflet Search -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet-search/2.9.9/leaflet-search.min.css" />
+
+  <!-- Marker Cluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+  <style>
+    body { margin:0; padding:0; }
+    #map { width:100%; height:100vh; }
+    .legend {
+      background:white;
+      padding:6px 8px;
+      font-size:14px;
+      line-height:1.4em;
+      box-shadow:0 0 10px rgba(0,0,0,0.3);
+      border-radius:4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- JS Libraries -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-search/2.9.9/leaflet-search.min.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+  <script>
+    // --- Initialize Map ---
+    var map = L.map('map').setView([0.3, 34.75], 9);
+
+    // --- Base Maps ---
+    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '&copy; Esri, Maxar, Earthstar Geographics'
+    });
+
+    var stamenTerrain = L.tileLayer('https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg', {
+      attribution: 'Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap.'
+    });
+
+    var darkMatter = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; CartoDB'
+    });
+
+    // --- Overlay Layers ---
+    var countyLayer = L.layerGroup();
+    var subcountiesLayer = L.layerGroup();
+    var wardsLayer = L.layerGroup();
+    var pollingStationsLayer = L.layerGroup();
+
+    // --- Load County Boundary ---
+    fetch('Kakamega_county_WGS84.geojson')
+      .then(res => res.json())
+      .then(data => {
+        countyLayer.addLayer(L.geoJSON(data, {
+          style: { color: 'blue', weight: 2, fillOpacity: 0 }
+        }));
+        countyLayer.addTo(map);
+      });
+
+    // --- Load Subcounties ---
+    fetch('Kakamega_subcounties_WGS84.geojson')
+      .then(res => res.json())
+      .then(data => {
+        subcountiesLayer.addLayer(L.geoJSON(data, {
+          style: feature => ({
+            color: 'green',
+            weight: 1.5,
+            fillOpacity: 0.05
+          }),
+          onEachFeature: function(feature, layer) {
+            var name = feature.properties.SubCounty || feature.properties.SUBCOUNTY || feature.properties.NAME || 'Subcounty';
+            layer.bindPopup('<b>Subcounty:</b> ' + name);
+          }
+        }));
+        subcountiesLayer.addTo(map);
+      });
+
+    // --- Load Wards (with random color symbology) ---
+    fetch('Kakamega_wards_WGS84.geojson')
+      .then(res => res.json())
+      .then(data => {
+        // Generate random color for each ward
+        function getRandomColor() {
+          const letters = '0123456789ABCDEF';
+          let color = '#';
+          for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+          }
+          return color;
+        }
+
+        wardsLayer.addLayer(L.geoJSON(data, {
+          style: feature => ({
+            color: 'black',
+            weight: 1,
+            fillColor: getRandomColor(),
+            fillOpacity: 0.4
+          }),
+          onEachFeature: function(feature, layer) {
+            var name = feature.properties.Ward || feature.properties.NAME || 'Ward';
+            layer.bindPopup('<b>Ward:</b> ' + name);
+          }
+        }));
+        wardsLayer.addTo(map);
+      });
+
+    // --- Polling Stations with Cluster ---
+    var markers = L.markerClusterGroup();
+
+    fetch('Kakamega_polling_stations_WGS84_4326.geojson')
+      .then(res => res.json())
+      .then(data => {
+        var stations = L.geoJSON(data, {
+          pointToLayer: function(feature, latlng) {
+            return L.circleMarker(latlng, {
+              radius: 5,
+              color: '#000',
+              weight: 1,
+              fillColor: 'orange',
+              fillOpacity: 0.9
+            });
+          },
+          onEachFeature: function(feature, layer) {
+            var p = feature.properties || {};
+            var popup = '<b>' + (p.Polling_St || p['Polling St'] || 'Polling Station') + '</b><br>' +
+                        'Constituency: ' + (p.Constituen || p.CONSTITUEN || 'N/A') + '<br>' +
+                        'Ward: ' + (p.Ward || 'N/A') + '<br>' +
+                        'Registered Voters: ' + (p.Regist_Vot || p.Regist_Voters || 'N/A');
+            layer.bindPopup(popup);
+          }
+        });
+
+        markers.addLayer(stations);
+        pollingStationsLayer.addLayer(markers);
+        pollingStationsLayer.addTo(map);
+
+        var bounds = stations.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds.pad(0.1));
+
+        // --- Search Control ---
+        var searchControl = new L.Control.Search({
+          layer: stations,
+          propertyName: 'Polling_St',
+          marker: false,
+          moveToLocation: function(latlng, title, map) {
+            map.setView(latlng, 16);
+          },
+          textPlaceholder: 'Search polling station...'
+        });
+        searchControl.on('search:locationfound', function(e) {
+          if (e.layer && e.layer._popup) e.layer.openPopup();
+        });
+        map.addControl(searchControl);
+      });
+
+    // --- Global Geocoder ---
+    L.Control.geocoder({
+      defaultMarkGeocode: true,
+      placeholder: 'Search place...'
+    }).addTo(map);
+
+    // --- Base Map and Overlay Control ---
+    var baseMaps = {
+      "OpenStreetMap": osm,
+      "Satellite (Esri)": esriSat,
+      "Terrain (Stamen)": stamenTerrain,
+      "Dark Mode (CartoDB)": darkMatter
+    };
+
+    var overlays = {
+      "County boundary": countyLayer,
+      "Subcounties": subcountiesLayer,
+      "Wards": wardsLayer,
+      "Polling stations": pollingStationsLayer
+    };
+
+    L.control.layers(baseMaps, overlays, { collapsed: false }).addTo(map);
+
+    // --- Legend ---
+    var legend = L.control({position: 'bottomright'});
+    legend.onAdd = function() {
+      var div = L.DomUtil.create('div', 'legend');
+      div.innerHTML = '<b>Legend</b><br>' +
+                      '<span style="background:orange;display:inline-block;width:12px;height:12px;border:1px solid #000;margin-right:6px;"></span> Polling station<br>' +
+                      '<span style="border-left:6px solid blue;padding-left:6px;"> </span> County boundary<br>' +
+                      '<span style="border-left:6px solid green;padding-left:6px;"> </span> Subcounties<br>' +
+                      '<span style="border-left:6px solid purple;padding-left:6px;"> </span> Wards (color-coded)';
+      return div;
+    };
+    legend.addTo(map);
+
+    // --- Keep Legend Above Layers ---
+    var css = document.createElement('style');
+    css.innerHTML = `.leaflet-control { z-index: 1000 !important; }`;
+    document.head.appendChild(css);
+  </script>
+</body>
+</html>
+
